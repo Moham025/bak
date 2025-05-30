@@ -1,16 +1,28 @@
-# civil_eng_tools_pro
+# 🚀 Backend Flask - Engineering Tools
 
-A new Flutter project.
+**Backend Flask seulement - Prêt pour Railway deployment**
 
-## Getting Started
+## 📋 Description
+Backend Python Flask pour les outils d'ingénierie :
+- **Bon à Envoyer** : Traitement de fichiers Excel
+- **Combine Armatures** : Traitement de fichiers CSV
 
-This project is a starting point for a Flutter application.
+## 🛠 Technologies
+- **Flask** : Serveur web
+- **Pandas/Openpyxl** : Traitement de données
+- **Gunicorn** : Serveur WSGI pour production
 
-A few resources to get you started if this is your first Flutter project:
+## 🚀 Déploiement Railway
+Ce dossier est configuré pour Railway avec :
+- `Procfile` : Configuration du serveur
+- `requirements.txt` : Dépendances Python
+- `.gitignore` : Fichiers exclus
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 📡 API Endpoints
+- `POST /get-sheet-names` : Obtenir les feuilles Excel
+- `POST /process-excel` : Traiter le fichier Excel  
+- `POST /combine-armatures` : Combiner les CSV armatures
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 🔧 Variables d'environnement
+- `PORT` : Port du serveur (défini automatiquement par Railway)
+- `FLASK_ENV` : Environment (production par défaut)
