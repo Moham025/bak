@@ -1,0 +1,498 @@
+from flask import Flask, request, send_file, jsonify
+# from numpy import array_str # Removing this conflicting import
+import openpyxl
+from openpyxl.utils.cell import get_column_letter
+from openpyxl.utils.exceptions import InvalidFileException
+import os
+import re
+import io
+from copy import copy # Pour copier les styles
+import math # Pour math.trunc
+from flask_cors import CORS # S'assurer que l'import est présent
+from covnumletter import conv_number_letter as cl_conv_number_letter # Import from covnumletter.py
+
+# --- Flask App Setup ---
+app = Flask(__name__)
+CORS(app) # Décommentez si vous avez des appels cross-origin et que vous voulez les gérer
+
+# --- Conversion Nombre en Lettres (Python) ---
+# (Copiez ici la version Python complète de conv_number_letter_python,
+# conv_num_ent_python, conv_num_cent_python, conv_num_dizaine_python
+# que nous avons développée dans la réponse précédente)
+
+# === DEBUT BLOC DE CONVERSION NOMBRE EN LETTRES ===
+# Langue=0: Français, Langue=1: Belgique, Langue=2: Suisse
+def conv_num_dizaine_python(nombre, langue=0):
+    if not (0 <= nombre <= 99): return ""
+    tab_unit = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf", "dix", "onze", "douze", "treize", "quatorze", "quinze", "seize", "dix-sept", "dix-huit", "dix-neuf"]
+    tab_diz_base = ["", "", "vingt", "trente", "quarante", "cinquante", "soixante", "soixante", "quatre-vingt", "quatre-vingt"]
+    tab_diz = list(tab_diz_base)
+    if langue == 1: tab_diz[7], tab_diz[9] = "septante", "nonante"
+    elif langue == 2: tab_diz[7], tab_diz[8], tab_diz[9] = "septante", "huitante", "nonante"
+    by_diz, by_unit = nombre // 10, nombre % 10
+    res = ""
+    if nombre < 20: return tab_unit[nombre]
+    res = tab_diz[by_diz]
+    if by_diz == 7 and langue == 0:
+        if by_unit > 0: res += "-" + tab_unit[10 + by_unit]
+    elif by_diz == 9 and langue == 0:
+        if by_unit > 0: res = "quatre-vingt-" + tab_unit[10 + by_unit]
+        else: res = "quatre-vingt-dix"
+    else:
+        if by_diz == 8 and by_unit == 0 and res.endswith("t"): res += "s"
+        if by_unit > 0:
+            if by_unit == 1 and by_diz not in [1, 7, 9] and by_diz in [2,3,4,5,6]: res += " et " + tab_unit[by_unit]
+            else: res += "-" + tab_unit[by_unit]
+    return res.strip("-")
+
+def conv_num_cent_python(nombre, langue=0):
+    if not (0 <= nombre <= 999): return ""
+    by_cent, by_reste = nombre // 100, nombre % 100
+    str_reste = conv_num_dizaine_python(by_reste, langue)
+    res = ""
+    if by_cent == 0: res = str_reste
+    elif by_cent == 1:
+        res = "cent"
+        if by_reste > 0: res += " " + str_reste
+    else:
+        tab_unit_for_cent = ["", "un", "deux", "trois", "quatre", "cinq", "six", "sept", "huit", "neuf"]
+        res = tab_unit_for_cent[by_cent] + " cent"
+        if by_reste == 0: res += "s"
+        elif by_reste > 0: res += " " + str_reste
+    return res
+
+def conv_num_ent_python(nombre, langue=0):
+    if nombre == 0: return "zéro"
+    parts = []
+    mots_grandeurs = ["", " mille ", " million ", " milliard ", " billion "]
+    i = 0
+    nombre_original_pour_un = nombre # garder une trace pour le 'un million' etc
+    while nombre > 0:
+        part_num = int(nombre % 1000)
+        if part_num != 0:
+            part_en_lettres = conv_num_cent_python(part_num, langue)
+            grandeur = mots_grandeurs[i]
+            
+            if i == 1 and part_num == 1 : # mille (pas 'un mille')
+                 part_en_lettres = "" # on veut juste 'mille'
+
+            if i >= 2 : # million, milliard, ...
+                if part_num == 1 : # un million
+                    grandeur = grandeur.strip().replace('s ', ' ') + " " # enlever le 's' potentiel
+                elif part_num > 1 and not grandeur.strip().endswith('s'): # plusieurs millions
+                    grandeur = grandeur.strip() + "s "
+
+            parts.insert(0, part_en_lettres + grandeur.strip())
+        nombre //= 1000
+        i += 1
+    result = " ".join(filter(None, parts)).strip() # filter(None, parts) pour enlever chaînes vides
+    result = re.sub(r'\s+', ' ', result).strip()
+    return result
+
+def conv_number_letter_python(nombre, devise_code=0, langue_code=0):
+    if not isinstance(nombre, (int, float)):
+        try: nombre = float(str(nombre).replace(',', '.'))
+        except ValueError: return "#TypeInvalide"
+    b_negatif = nombre < 0
+    if b_negatif: nombre = abs(nombre)
+    dbl_ent, by_dec_float = math.trunc(nombre), (nombre - math.trunc(nombre)) * 100
+    by_dec = int(by_dec_float + 0.00001) if by_dec_float > 0 else 0
+    if by_dec > 99 : by_dec = int(round(by_dec_float))
+    if (by_dec == 0 and dbl_ent > 999999999999999) or (by_dec > 0 and dbl_ent > 9999999999999.99): return "#TropGrand"
+    
+    devise_nom, devise_centime_nom, str_dev_sep = "", "", ""
+    if devise_code == 0:
+        if by_dec > 0: str_dev_sep = " virgule"
+    elif devise_code == 1: # FCFA
+        devise_nom, devise_centime_nom = "Francs CFA", "Cents"
+    elif devise_code == 2: # Dollar
+        devise_nom = "Dollar" if dbl_ent == 1 else "Dollars"
+        devise_centime_nom = "Cent" if by_dec == 1 else "Cents"
+        
+    lettres_entier = conv_num_ent_python(float(dbl_ent), langue_code)
+    if b_negatif: lettres_entier = "moins " + lettres_entier
+    
+    if devise_code == 1: # Format spécial FCFA
+        nombre_str_par = "{:.2f}".format(nombre + (0.00001 if (nombre - math.trunc(nombre)) * 1000 % 10 >= 5 else 0)).replace(",", ".") #arrondi pour affichage
+        if nombre_str_par.endswith(".00"): nombre_str_par = nombre_str_par[:-3]
+        resultat_final = f"{lettres_entier} ( {nombre_str_par} ) {devise_nom}"
+        if by_dec > 0:
+            resultat_final += f" {conv_num_dizaine_python(by_dec, langue_code)} {devise_centime_nom}"
+    else:
+        resultat_final = lettres_entier
+        if devise_code != 0: resultat_final += f" {devise_nom}"
+        if by_dec > 0:
+            lettres_decimale = conv_num_dizaine_python(by_dec, langue_code)
+            resultat_final += f"{str_dev_sep if devise_code == 0 else ' et'} {lettres_decimale}"
+            if devise_code != 0: resultat_final += f" {devise_centime_nom}"
+            
+    resultat_final = re.sub(r'\s+', ' ', resultat_final).strip()
+    return resultat_final.capitalize() if resultat_final else ""
+# === FIN BLOC DE CONVERSION NOMBRE EN LETTRES ===
+
+
+# --- Fonctions Utilitaires Excel Python ---
+def trouver_nom_feuille_original(nom_saisi, noms_feuilles_sources_dict):
+    nom_normalise_saisi = nom_saisi.strip().lower()
+    return noms_feuilles_sources_dict.get(nom_normalise_saisi, "")
+
+def feuille_existe(workbook, sheet_name):
+    return sheet_name in workbook.sheetnames
+
+def est_une_feuille_recap(nom_feuille_original):
+    nom_lower = nom_feuille_original.strip().lower()
+    recap_keywords = ["recap", "récap", "summary", "synthese", "synthèse"]
+    specific_recap_names = ["recapitulatif", "récapitulatif"]
+    is_recap = any(keyword in nom_lower for keyword in recap_keywords) or nom_lower in specific_recap_names
+    print(f"  Vérif Recap pour '{nom_feuille_original}' (normalisé: '{nom_lower}'): {is_recap}")
+    return is_recap
+
+def add_quotes_if_necessary(sheet_name):
+    if re.search(r"[\s!@#$%^&*()+={}\[\]:;\"'<>,.?/\\|-]", sheet_name) or \
+       sheet_name.lower() in ['true', 'false'] or \
+       (sheet_name and sheet_name[0].isdigit()):
+        return f"'{sheet_name.replace('\'', '\'\'')}'"
+    return sheet_name
+
+# --- Fonctions de Traitement de Feuilles Excel Python ---
+def nettoyer_total_en_lettres(ws_copie, ws_original_source_values):
+    """Similaire à la fonction VBA NettoyerTotalEnLettres."""
+    print(f"  Nettoyage du total en lettres pour la feuille '{ws_copie.title}'...")
+    prefixe = "Arrêter le présent devis estimatif à la somme de :"
+    
+    if ws_copie.max_row == 0:
+        print("    DEBUG: Feuille vide, pas de nettoyage de total.")
+        return
+
+    ligne_total_general = None
+    valeur_cell_A_total_general = None
+    for row in range(1, ws_copie.max_row + 1):
+        cell_a = ws_copie[f"A{row}"]
+        if cell_a.value and isinstance(cell_a.value, str):
+            if "TOTAL GENERAL" in cell_a.value.upper():
+                ligne_total_general = row
+                valeur_cell_A_total_general = cell_a.value
+                print(f"    DEBUG: Ligne 'TOTAL GENERAL' TROUVÉE. Row: {row}, Contenu: '{valeur_cell_A_total_general}'")
+                break
+    
+    if ligne_total_general:
+        cell_f_total_coord = f"F{ligne_total_general}"
+        cell_f_total_formule_mode = ws_copie[cell_f_total_coord] # From the sheet with formulas
+        cell_f_total_valeur_mode = ws_original_source_values[cell_f_total_coord] # From the sheet with values
+
+        print(f"    DEBUG: Cellule du total (col F): {cell_f_total_coord}")
+        print(f"      Valeur (depuis feuille formules ws_copie): '{cell_f_total_formule_mode.value}', Type: {cell_f_total_formule_mode.data_type}")
+        print(f"      Valeur (depuis feuille valeurs ws_original_source_values): '{cell_f_total_valeur_mode.value}', Type: {cell_f_total_valeur_mode.data_type}")
+
+        montant_total = None
+        # Prioriser la valeur de la feuille chargée avec data_only=True pour les formules
+        if cell_f_total_formule_mode.data_type == 'f':
+            print(f"    DEBUG: {cell_f_total_coord} est une formule ('{cell_f_total_formule_mode.value}'). Utilisation de la valeur de ws_original_source_values.")
+            montant_total = cell_f_total_valeur_mode.value
+        else:
+            # Si ce n'est pas une formule, la valeur de ws_copie devrait être correcte
+            montant_total = cell_f_total_formule_mode.value
+            print(f"    DEBUG: {cell_f_total_coord} n'est pas une formule. Utilisation de la valeur de ws_copie: {montant_total}")
+
+        if isinstance(montant_total, (int, float)) and montant_total > 0:
+            print(f"    DEBUG: Montant total final utilisé pour conversion: {montant_total}")
+            
+            texte_total_lettres = cl_conv_number_letter(montant_total, devise=1, langue=0)
+            texte_final = f"{prefixe} {texte_total_lettres}"
+            ligne_suivante = ligne_total_general + 1
+            cell_a_suivante = ws_copie[f"A{ligne_suivante}"]
+            cell_a_suivante.value = texte_final
+            
+            print(f"    DEBUG: Texte en lettres ('{texte_total_lettres}') inséré ligne {ligne_suivante} col A avec préfixe.")
+        elif montant_total is None and cell_f_total_formule_mode.data_type == 'f':
+            print(f"    AVERTISSEMENT: Montant total dans {cell_f_total_coord} (formule: '{cell_f_total_formule_mode.value}') n'a pas pu être résolu en nombre depuis la feuille des valeurs ('{cell_f_total_valeur_mode.value}'). Conversion ignorée.")
+        else:
+            print(f"    AVERTISSEMENT: Valeur montant invalide ou nulle dans {cell_f_total_coord}: '{montant_total}'. Conversion ignorée.")
+    else:
+        print("    DEBUG: Aucune ligne 'TOTAL GENERAL' trouvée dans la colonne A.")
+
+    print(f"  Fin nettoyage total en lettres pour '{ws_copie.title}'.")
+
+def modifier_liens_externes_feuille_recap(ws_recap, wb_cible):
+    print(f"--- Début ModifierLiensExternesFeuilleRecap pour '{ws_recap.title}' ---")
+    
+    # Analyser plusieurs colonnes : F et la dernière colonne
+    colonnes_a_analyser = []
+    
+    # Toujours analyser la colonne F
+    colonnes_a_analyser.append(6)  # F = colonne 6
+    
+    # Analyser aussi la dernière colonne si elle existe et est différente de F
+    if ws_recap.max_column > 0 and ws_recap.max_column != 6:
+        colonnes_a_analyser.append(ws_recap.max_column)
+    
+    if not colonnes_a_analyser:
+        print(f"    Aucune colonne à analyser pour '{ws_recap.title}'. Arrêt.")
+        print(f"--- Fin ModifierLiensExternesFeuilleRecap pour '{ws_recap.title}' ---")
+        return
+    
+    for col_num in colonnes_a_analyser:
+        col_letter = get_column_letter(col_num)
+        print(f"    Analyse des formules dans la colonne {col_letter} de '{ws_recap.title}'")
+
+        for r in range(1, ws_recap.max_row + 1):
+            cell = ws_recap.cell(row=r, column=col_num)
+            if cell.data_type == 'f':
+                formula_string = str(cell.value)
+                print(f"      Analyse cellule {cell.coordinate} | Formule Originale: {formula_string}")
+                
+                # Traiter les liens externes complexes avec fichier externe [nom_fichier]
+                match_externe = re.match(r"=(.*?)\[([^\]]+)\](.*?([^\!']+?)|\'?([^\!']+?)\'?)\!(.+)", formula_string, re.IGNORECASE)
+                if match_externe:
+                    prefix, external_file, _, _, external_sheet_raw, cell_ref = match_externe.groups()
+                    external_sheet_clean = external_sheet_raw.strip("'").replace("''", "'").strip()
+                    print(f"        Lien externe: Fichier='{external_file}', Feuille='{external_sheet_clean}', Cellule='{cell_ref}'")
+                    target_copied_sheet_name = f"{external_sheet_clean}_copie"
+                    print(f"          Cible attendue: '{target_copied_sheet_name}'")
+                    if target_copied_sheet_name in wb_cible.sheetnames:
+                        print(f"            Cible '{target_copied_sheet_name}' existe.")
+                        new_formula = f"={prefix}{add_quotes_if_necessary(target_copied_sheet_name)}!{cell_ref}"
+                        if formula_string.lower() != new_formula.lower():
+                            cell.value = new_formula
+                            print(f"              MODIFIÉ: '{new_formula}'")
+                        else: print("              Aucune modification nécessaire.")
+                    else: print(f"            ATTENTION: Cible '{target_copied_sheet_name}' N'EXISTE PAS.")
+                else:
+                    # Traiter les liens internes simples =NomFeuille!Cellule
+                    match_interne = re.match(r"=([^!\[]+)!(.+)", formula_string, re.IGNORECASE)
+                    if match_interne:
+                        sheet_name_raw, cell_ref = match_interne.groups()
+                        sheet_name_clean = sheet_name_raw.strip("'").replace("''", "'").strip()
+                        print(f"        Lien interne: Feuille='{sheet_name_clean}', Cellule='{cell_ref}'")
+                        target_copied_sheet_name = f"{sheet_name_clean}_copie"
+                        print(f"          Cible attendue: '{target_copied_sheet_name}'")
+                        if target_copied_sheet_name in wb_cible.sheetnames:
+                            print(f"            Cible '{target_copied_sheet_name}' existe.")
+                            new_formula = f"={add_quotes_if_necessary(target_copied_sheet_name)}!{cell_ref}"
+                            if formula_string.lower() != new_formula.lower():
+                                cell.value = new_formula
+                                print(f"              MODIFIÉ: '{new_formula}'")
+                            else: print("              Aucune modification nécessaire.")
+                        else: print(f"            ATTENTION: Cible '{target_copied_sheet_name}' N'EXISTE PAS.")
+                    # else: print("        Pas un lien reconnu.") # commenter pour moins de verbosité
+    
+    print(f"--- Fin ModifierLiensExternesFeuilleRecap pour '{ws_recap.title}' ---")
+
+def copier_feuille_manuellement(ws_source, wb_destination, nouveau_nom_feuille):
+    if nouveau_nom_feuille in wb_destination.sheetnames:
+        del wb_destination[nouveau_nom_feuille]
+    ws_destination = wb_destination.create_sheet(title=nouveau_nom_feuille)
+    for row in ws_source.iter_rows():
+        for cell in row:
+            new_cell = ws_destination.cell(row=cell.row, column=cell.column, value=cell.value)
+            if cell.has_style:
+                new_cell.font, new_cell.border, new_cell.fill = copy(cell.font), copy(cell.border), copy(cell.fill)
+                new_cell.number_format, new_cell.protection, new_cell.alignment = cell.number_format, copy(cell.protection), copy(cell.alignment)
+    for col_letter, dim in ws_source.column_dimensions.items(): ws_destination.column_dimensions[col_letter].width = dim.width
+    for row_num, dim in ws_source.row_dimensions.items(): ws_destination.row_dimensions[row_num].height = dim.height
+    for merged_range_str in ws_source.merged_cells.ranges: ws_destination.merge_cells(str(merged_range_str)) # Convertir MergedCellRange en string
+    return ws_destination
+
+# --- Logique principale de traitement du serveur ---
+def traiter_fichier_excel_core(bytes_fichier_source, noms_feuilles_a_traiter_str):
+    try:
+        # Ouvrir le fichier deux fois : une pour les formules, une pour les valeurs
+        wb_source = openpyxl.load_workbook(io.BytesIO(bytes_fichier_source), data_only=False)
+        wb_source_values = openpyxl.load_workbook(io.BytesIO(bytes_fichier_source), data_only=True)
+        print(f"Fichier source chargé en mémoire (formules et valeurs).")
+    except InvalidFileException:
+        print("Fichier Excel invalide ou corrompu.")
+        return None
+    except Exception as e:
+        print(f"Impossible de charger le fichier source depuis les bytes: {e}")
+        return None
+
+    noms_feuilles_sources_dict = {name.strip().lower(): name.strip() for name in wb_source.sheetnames}
+
+    if not noms_feuilles_a_traiter_str:
+        print("Erreur critique: Noms de feuilles à traiter non fournis.")
+        return None # Dans une app web, la sélection de feuilles doit être explicite
+        
+    l_array_str = [s.strip() for s in noms_feuilles_a_traiter_str.replace(";", ",").split(",") if s.strip()]
+    if not l_array_str:
+        print("Aucun nom de feuille valide n'a été fourni pour traitement.")
+        return None
+        
+    wb_destination = openpyxl.Workbook()
+    default_sheet_name = wb_destination.sheetnames[0] # Généralement "Sheet"
+    sheet_to_delete_if_unused = default_sheet_name if default_sheet_name.lower() in ["sheet", "feuil1"] else None
+    
+    first_sheet_processed = False
+    processed_sheet_names_in_dest = []
+
+    for nom_feuille_saisi in l_array_str:
+        nom_feuille_source_original = trouver_nom_feuille_original(nom_feuille_saisi, noms_feuilles_sources_dict)
+        if nom_feuille_source_original:
+            ws_original_source = wb_source[nom_feuille_source_original]
+            ws_original_source_values = wb_source_values[nom_feuille_source_original]
+            nom_feuille_copie_dest = f"{nom_feuille_source_original.strip()}_copie"
+            
+            print(f"Copie de la feuille '{ws_original_source.title}' vers '{nom_feuille_copie_dest}'.")
+            ws_copie_dest = copier_feuille_manuellement(ws_original_source, wb_destination, nom_feuille_copie_dest)
+            
+            processed_sheet_names_in_dest.append(nom_feuille_copie_dest)
+
+            if not first_sheet_processed and sheet_to_delete_if_unused and \
+               sheet_to_delete_if_unused in wb_destination.sheetnames and \
+               nom_feuille_copie_dest != sheet_to_delete_if_unused:
+                del wb_destination[sheet_to_delete_if_unused]
+                print(f"Feuille par défaut '{sheet_to_delete_if_unused}' supprimée.")
+                sheet_to_delete_if_unused = None 
+            first_sheet_processed = True
+            
+            print(f"  Traitement de la feuille copiée: '{ws_copie_dest.title}'")
+            
+            # 1. Conversion des colonnes D et E en valeurs (AVANT suppression des colonnes G-J)
+            print(f"    Conversion des formules en valeurs pour colonnes D et E...")
+            for col_letter_idx_str in ["D", "E"]:
+                print(f"      Traitement colonne {col_letter_idx_str}...")
+                for row in range(1, ws_copie_dest.max_row + 1):
+                    cell = ws_copie_dest[f"{col_letter_idx_str}{row}"]
+                    if cell.data_type == 'f':  # Si c'est une formule
+                        # Récupérer la valeur calculée depuis wb_source_values
+                        try:
+                            valeur_calculee = ws_original_source_values[f"{col_letter_idx_str}{row}"].value
+                            if valeur_calculee is not None:
+                                cell.value = valeur_calculee  # Remplacer la formule par la valeur
+                                print(f"        {cell.coordinate}: Formule convertie en valeur = {valeur_calculee}")
+                            else:
+                                print(f"        {cell.coordinate}: Valeur calculée = None, formule conservée")
+                        except Exception as e_val:
+                            print(f"        Erreur conversion {cell.coordinate}: {e_val}")
+                    elif cell.value is not None:
+                        # Si ce n'est pas une formule mais a une valeur, la garder
+                        print(f"        {cell.coordinate}: Valeur déjà présente = {cell.value}")
+
+            # 1.5. La colonne F garde ses formules intactes
+            # Les formules seront recalculées automatiquement par Excel à l'ouverture
+
+            # 2. Nettoyer total en lettres
+            nettoyer_total_en_lettres(ws_copie_dest, ws_original_source_values)
+
+            # 3. Supprimer colonnes G à J (APRÈS conversion D et E)
+            print(f"    Suppression des colonnes G à J pour {ws_copie_dest.title}...")
+            ws_copie_dest.delete_cols(7, 4) # G=7, 4 colonnes (G,H,I,J)
+
+            # 4. Vérifier si c'est un récap et modifier les liens
+            nom_original_pour_recap = nom_feuille_source_original.strip()
+            if est_une_feuille_recap(nom_original_pour_recap):
+                print(f"  Feuille '{ws_copie_dest.title}' identifiée comme récap. Modification des liens...")
+                modifier_liens_externes_feuille_recap(ws_copie_dest, wb_destination)
+            
+            print(f"  Traitement terminé pour '{ws_copie_dest.title}'.")
+        else:
+            print(f"ATTENTION: La feuille saisie '{nom_feuille_saisi}' n'a pas été trouvée.")
+
+    # Nettoyage final de la feuille par défaut
+    if sheet_to_delete_if_unused and sheet_to_delete_if_unused in wb_destination.sheetnames and not processed_sheet_names_in_dest:
+        del wb_destination[sheet_to_delete_if_unused]
+        print(f"Nettoyage final: feuille par défaut '{sheet_to_delete_if_unused}' supprimée car aucune feuille n'a été traitée.")
+
+    if not processed_sheet_names_in_dest:
+        print("Aucune feuille n'a été traitée ou copiée.")
+        wb_source.close()
+        wb_source_values.close()
+        return None
+
+    # Activer la première feuille traitée
+    if wb_destination.sheetnames and processed_sheet_names_in_dest[0] in wb_destination.sheetnames:
+        wb_destination.active = wb_destination[processed_sheet_names_in_dest[0]]
+
+    wb_source.close() # Fermer les classeurs source
+    wb_source_values.close()
+
+    # Sauvegarder le classeur modifié en mémoire (bytes)
+    try:
+        # Forcer le recalcul automatique des formules à l'ouverture du fichier
+        wb_destination.calculation.calcMode = 'auto'
+        wb_destination.calculation.fullCalcOnLoad = True
+        
+        # Marquer TOUTES les feuilles comme nécessitant un recalcul complet
+        for ws in wb_destination.worksheets:
+            # Forcer le recalcul de toute la feuille
+            ws.calcMode = 'auto'
+            ws.fullCalcOnLoad = True
+            # Marquer la feuille comme "dirty" pour forcer le recalcul
+            for row in ws.iter_rows():
+                for cell in row:
+                    if cell.data_type == 'f':  # Si c'est une formule
+                        # Forcer le recalcul en "touchant" la formule
+                        formula_temp = cell.value
+                        cell.value = formula_temp
+        
+        output_io = io.BytesIO()
+        wb_destination.save(output_io)
+        output_io.seek(0)
+        print(f"Classeur de destination préparé en mémoire ({len(processed_sheet_names_in_dest)} feuilles) avec recalcul automatique renforcé.")
+        return output_io
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde du fichier de destination en mémoire: {e}")
+        return None
+
+# --- Endpoints Flask ---
+@app.route('/get-sheet-names', methods=['POST'])
+def get_sheet_names_route():
+    if 'excel_file' not in request.files:
+        return jsonify({"error": "Aucun fichier ('excel_file') envoyé"}), 400
+    file = request.files['excel_file']
+    if file.filename == '':
+        return jsonify({"error": "Aucun fichier sélectionné"}), 400
+    if not (file.filename.endswith('.xlsx')): # Openpyxl supporte .xlsx
+        return jsonify({"error": "Type de fichier invalide. Seul .xlsx est supporté par ce backend."}), 400
+    
+    print(f"Fichier reçu pour extraction de noms: {file.filename}")
+    file_bytes = file.read()
+    try:
+        workbook = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True)
+        sheet_names_list = workbook.sheetnames
+        workbook.close() # Important de fermer le classeur après lecture des noms
+        if sheet_names_list:
+            return jsonify({"sheet_names": sheet_names_list}), 200
+        else:
+            return jsonify({"error": "Aucun nom de feuille trouvé ou fichier vide."}), 500
+    except InvalidFileException:
+        return jsonify({"error": "Fichier Excel invalide ou corrompu."}), 400
+    except Exception as e:
+        print(f"Erreur lors de l'extraction des noms de feuilles: {e}")
+        return jsonify({"error": "Erreur serveur lors de l'extraction des noms de feuilles."}), 500
+
+
+@app.route('/process-excel', methods=['POST'])
+def process_excel_file_route():
+    if 'excel_file' not in request.files:
+        return jsonify({"error": "Aucun fichier ('excel_file') envoyé"}), 400
+    file = request.files['excel_file']
+    sheet_names_str = request.form.get('sheet_names') # Récupérer les noms des feuilles du formulaire
+
+    if file.filename == '': return jsonify({"error": "Aucun fichier sélectionné"}), 400
+    if not sheet_names_str: return jsonify({"error": "Noms de feuilles à traiter non fournis ('sheet_names')"}), 400
+    if not (file.filename.endswith('.xlsx')):
+        return jsonify({"error": "Type de fichier invalide. Seul .xlsx est supporté."}), 400
+
+    print(f"Fichier reçu pour traitement: {file.filename}, Feuilles: {sheet_names_str}")
+    file_bytes = file.read()
+    
+    processed_file_io = traiter_fichier_excel_core(file_bytes, sheet_names_str) 
+
+    if processed_file_io:
+        print(f"Envoi du fichier traité '{file.filename}'")
+        return send_file(
+            processed_file_io,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=False,  # Changé à False pour ouvrir directement
+        download_name=f"traite_{file.filename}"
+        )
+    else:
+        return jsonify({"error": "Erreur serveur lors du traitement du fichier Excel."}), 500
+
+# --- Lancement de l'application ---
+if __name__ == '__main__':
+    print("Démarrage du serveur Flask pour traitement Excel...")
+    # Attention: host='0.0.0.0' rend le serveur accessible sur votre réseau.
+    # Pour le développement local, '127.0.0.1' est souvent suffisant.
+    app.run(debug=True, host='0.0.0.0', port=5000)
