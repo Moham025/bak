@@ -9,8 +9,24 @@ import io
 from copy import copy # Pour copier les styles
 import math # Pour math.trunc
 from flask_cors import CORS # S'assurer que l'import est présent
-from covnumletter import conv_number_letter as cl_conv_number_letter # Import from covnumletter.py
-from combineArm import process_armature_csvs # Importer la nouvelle fonction
+import sys
+
+# Ajouter le répertoire backend au path pour les imports
+backend_dir = os.path.dirname(os.path.abspath(__file__))
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+# Import des modules du répertoire backend
+from covnumletter import conv_number_letter as cl_conv_number_letter
+from combineArm import process_armature_csvs
+
+# Import des modules EstimBatiment
+estim_batiment_dir = os.path.join(backend_dir, 'EstimBatiment')
+if estim_batiment_dir not in sys.path:
+    sys.path.insert(0, estim_batiment_dir)
+
+from data_reader import get_qt_data, get_open_data, get_simple_block_data, get_formula_block_data
+from calculation_engine import parse_calcul_sheet_and_process_blocks, process_menuiserie_block, process_simple_block, process_formula_block, write_recap_block
 
 # --- Flask App Setup ---
 app = Flask(__name__)
@@ -419,6 +435,227 @@ def combine_armatures_route():
     except Exception as e:
         print(f"Exception lors de l'appel à process_armature_csvs ou de l'envoi du fichier: {e}")
         return jsonify({"error": f"Erreur serveur critique lors de la combinaison des armatures: {str(e)}"}), 500
+
+@app.route('/estim-batiment', methods=['POST'])
+def estim_batiment_route():
+    """
+    Endpoint pour traiter les fichiers Excel d'estimation de bâtiment.
+    Accepte un fichier Excel avec les feuilles requises et génère un devis détaillé.
+    """
+    if not request.files:
+        print("Aucun fichier n'a été envoyé pour l'estimation bâtiment.")
+        return jsonify({"error": "Aucun fichier envoyé."}), 400
+
+    if 'excel_file' not in request.files:
+        print("Clé 'excel_file' manquante dans les fichiers envoyés.")
+        return jsonify({"error": "Fichier Excel requis avec la clé 'excel_file'."}), 400
+
+    uploaded_file = request.files['excel_file']
+    
+    if not uploaded_file or not uploaded_file.filename:
+        print("Fichier Excel vide ou sans nom.")
+        return jsonify({"error": "Fichier Excel valide requis."}), 400
+
+    print(f"Fichier reçu pour estimation bâtiment: {uploaded_file.filename}")
+
+    try:
+        # Lire le contenu du fichier
+        file_bytes = uploaded_file.read()
+        
+        if not file_bytes:
+            print("Le fichier reçu est vide.")
+            return jsonify({"error": "Le fichier envoyé est vide."}), 400
+
+        print(f"Taille du fichier reçu: {len(file_bytes)} bytes")
+        
+        # Traiter le fichier avec la fonction EstimBatiment
+        output_excel_io, output_filename = process_estim_batiment(file_bytes)
+        
+        if output_excel_io and output_filename:
+            print(f"Envoi du fichier d'estimation: {output_filename}")
+            return send_file(
+                output_excel_io,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                as_attachment=True,
+                download_name=output_filename
+            )
+        else:
+            # output_filename contient le message d'erreur
+            error_message = output_filename if output_filename else "Erreur inconnue lors du traitement"
+            print(f"Erreur lors du traitement EstimBatiment: {error_message}")
+            return jsonify({"error": error_message}), 500
+            
+    except Exception as e:
+        print(f"Exception lors du traitement EstimBatiment: {e}")
+        return jsonify({"error": f"Erreur serveur critique lors du traitement EstimBatiment: {str(e)}"}), 500
+
+# --- Fonction de traitement EstimBatiment ---
+def process_estim_batiment(excel_file_bytes):
+    """
+    Traite un fichier Excel d'estimation et génère un devis détaillé.
+    Basé sur la logique de main.py du module EstimBatiment.
+    
+    Args:
+        excel_file_bytes: Bytes du fichier Excel d'entrée
+        
+    Returns:
+        tuple: (output_excel_io, output_filename) ou (None, error_message)
+    """
+    try:
+        print("Traitement EstimBatiment - Chargement du classeur...")
+        
+        # Charge le classeur une première fois pour accéder aux formules (data_only=False)
+        input_wb_formulas = openpyxl.load_workbook(io.BytesIO(excel_file_bytes), data_only=False)
+        
+        # Charge le classeur une deuxième fois pour obtenir les valeurs calculées (data_only=True)
+        input_wb_values = openpyxl.load_workbook(io.BytesIO(excel_file_bytes), data_only=True)
+
+    except Exception as e:
+        print(f"Erreur lors de l'ouverture du fichier d'estimation: {e}")
+        return None, f"Erreur lors de l'ouverture du fichier: {str(e)}"
+
+    # Vérifie la présence des feuilles nécessaires
+    required_formula_sheets = ["qt", "calcul", "Peinture", "Revetement", "Toiture"]
+    required_value_sheets = ["open", "Electricite", "Plomberie"]
+
+    sheets_formulas = {}
+    sheets_values = {}
+    
+    for sheet_name in required_formula_sheets:
+        if sheet_name not in input_wb_formulas.sheetnames:
+            print(f"La feuille '{sheet_name}' est manquante dans le fichier d'entrée (pour les formules).")
+            sheets_formulas[sheet_name] = None
+        else:
+            sheets_formulas[sheet_name] = input_wb_formulas[sheet_name]
+
+    for sheet_name in required_value_sheets:
+        if sheet_name not in input_wb_values.sheetnames:
+            print(f"La feuille '{sheet_name}' est manquante dans le fichier d'entrée (pour les valeurs).")
+            sheets_values[sheet_name] = None
+        else:
+            sheets_values[sheet_name] = input_wb_values[sheet_name]
+
+    # Assign sheets to variables for clarity
+    qt_sheet = sheets_formulas["qt"]
+    calcul_sheet = sheets_formulas["calcul"]
+    open_sheet = sheets_values["open"]
+    electricite_sheet = sheets_values["Electricite"]
+    plomberie_sheet = sheets_values["Plomberie"]
+    peinture_sheet = sheets_formulas["Peinture"]
+    revetement_sheet = sheets_formulas["Revetement"]
+    toiture_sheet = sheets_formulas["Toiture"]
+
+    # Vérification des feuilles critiques
+    if qt_sheet is None:
+        return None, "La feuille 'qt' est obligatoire et manquante dans le fichier."
+    if calcul_sheet is None:
+        return None, "La feuille 'calcul' est obligatoire et manquante dans le fichier."
+
+    # --- Lecture des données ---
+    print("Lecture des données de la feuille 'qt'...")
+    qt_data_dict = get_qt_data(qt_sheet)
+    if not qt_data_dict:
+        print("AVERTISSEMENT: Aucune donnée lue depuis la feuille 'qt'.")
+    
+    open_data_list = []
+    if open_sheet:
+        print("Lecture des données de la feuille 'open'...")
+        open_data_list = get_open_data(open_sheet)
+
+    electricite_data_list = []
+    if electricite_sheet:
+        print("Lecture des données de la feuille 'Electricite'...")
+        electricite_data_list = get_simple_block_data(electricite_sheet)
+
+    plomberie_data_list = []
+    if plomberie_sheet:
+        print("Lecture des données de la feuille 'Plomberie'...")
+        plomberie_data_list = get_simple_block_data(plomberie_sheet)
+
+    peinture_data_list = []
+    if peinture_sheet:
+        print("Lecture des données de la feuille 'Peinture'...")
+        peinture_data_list = get_formula_block_data(peinture_sheet)
+
+    revetement_data_list = []
+    if revetement_sheet:
+        print("Lecture des données de la feuille 'Revetement'...")
+        revetement_data_list = get_formula_block_data(revetement_sheet)
+
+    toiture_data_list = []
+    if toiture_sheet:
+        print("Lecture des données de la feuille 'Toiture'...")
+        toiture_data_list = get_formula_block_data(toiture_sheet)
+
+    # --- Configuration du classeur de sortie ---
+    output_wb = openpyxl.Workbook()
+    if "Sheet" in output_wb.sheetnames:
+        main_output_sheet = output_wb["Sheet"]
+        main_output_sheet.title = "Estimation Globale"
+    else:
+        main_output_sheet = output_wb.create_sheet("Estimation Globale", 0) 
+
+    # --- Liste pour le récapitulatif ---
+    recap_entries = []
+
+    # --- Traitement et écriture des blocs ---
+    current_excel_row = 1 
+
+    print("Analyse de la feuille 'calcul' et génération des tableaux...")
+    current_excel_row = parse_calcul_sheet_and_process_blocks(calcul_sheet, qt_data_dict, main_output_sheet, recap_entries)
+
+    # Bloc IV: Menuiserie
+    if open_data_list:
+        print("Traitement du bloc IV: Menuiserie...")
+        current_excel_row = process_menuiserie_block(open_data_list, main_output_sheet, current_excel_row, recap_entries)
+
+    # Bloc V: Electricité
+    if electricite_data_list:
+        print("Traitement du bloc V: Electricité...")
+        current_excel_row = process_simple_block(electricite_data_list, main_output_sheet, current_excel_row, "V", "ELECTRICITE", 1, recap_entries)
+
+    # Bloc VI: Plomberie
+    if plomberie_data_list:
+        print("Traitement du bloc VI: Plomberie...")
+        current_excel_row = process_simple_block(plomberie_data_list, main_output_sheet, current_excel_row, "VI", "PLOMBERIE SANITAIRE", 1, recap_entries)
+
+    # Bloc VII: Revetement
+    if revetement_data_list:
+        print("Traitement du bloc VII: Revetement...")
+        current_excel_row = process_formula_block(revetement_data_list, qt_data_dict, main_output_sheet, current_excel_row, "VII", "REVETEMENT", 1, recap_entries)
+
+    # Bloc VIII: Peinture
+    if peinture_data_list:
+        print("Traitement du bloc VIII: Peinture...")
+        current_excel_row = process_formula_block(peinture_data_list, qt_data_dict, main_output_sheet, current_excel_row, "VIII", "PEINTURE", 1, recap_entries)
+
+    # Bloc IX: Toiture
+    if toiture_data_list:
+        print("Traitement du bloc IX: Toiture...")
+        current_excel_row = process_formula_block(toiture_data_list, qt_data_dict, main_output_sheet, current_excel_row, "IX", "TOITURE", 1, recap_entries)
+
+    # --- Ajout du récapitulatif ---
+    if recap_entries:
+        print("Génération du bloc RÉCAPITULATIF...")
+        current_excel_row = write_recap_block(main_output_sheet, current_excel_row, recap_entries)
+
+    # --- Vérification finale et sauvegarde ---
+    if main_output_sheet.max_row <= 1: 
+        return None, "Aucun bloc n'a été traité ou aucune donnée valide trouvée."
+
+    # Génération du nom de fichier de sortie
+    output_filename = "Estimation_Batiment_Calculee.xlsx"
+
+    # Sauvegarde en mémoire
+    try:
+        output_io = io.BytesIO()
+        output_wb.save(output_io)
+        output_io.seek(0)
+        print("Fichier d'estimation généré avec succès.")
+        return output_io, output_filename
+    except Exception as e:
+        print(f"Erreur lors de la sauvegarde du fichier d'estimation: {e}")
+        return None, f"Erreur lors de la sauvegarde: {str(e)}"
 
 # --- Lancement de l'application ---
 if __name__ == '__main__':
