@@ -1,1 +1,1 @@
-web: gunicorn backend.bon_a_envoye:app 
+web: cd backend && gunicorn bon_a_envoye:app --host 0.0.0.0 --port $PORT 

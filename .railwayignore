@@ -1,18 +1,7 @@
-# Ignorer les fichiers Flutter pour Railway
-lib/
-web/
-test/
-android/
-ios/
-linux/
-macos/
-windows/
-pubspec.yaml
-pubspec.lock
-analysis_options.yaml
-
-# Garder seulement le backend
+# Ignorer tous les fichiers Flutter et garder seulement le backend
+*
 !backend/
-!requirements.txt
+!backend/**
 !Procfile
-!railway.json 
+!railway.json
+!runtime.txt 
