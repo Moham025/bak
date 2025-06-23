@@ -338,8 +338,67 @@ def traiter_fichier_excel_core(bytes_fichier_source, noms_feuilles_a_traiter_str
 # --- Endpoints Flask ---
 @app.route('/')
 def health_check():
-    """Health check endpoint for Railway"""
-    return jsonify({"status": "healthy", "service": "Excel Processing API"}), 200
+    """Health check endpoint for Railway/Render with HTML response for browsers"""
+    user_agent = request.headers.get('User-Agent', '').lower()
+    
+    # If it's a monitoring system or API client, return JSON
+    if 'go-http-client' in user_agent or request.headers.get('Accept', '').startswith('application/json'):
+        return jsonify({"status": "healthy", "service": "Excel Processing API"}), 200
+    
+    # For browsers, return a more user-friendly HTML page
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Excel Processing API</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 20px; line-height: 1.6; }
+            .container { max-width: 800px; margin: 0 auto; }
+            h1 { color: #333; }
+            .endpoint { background: #f4f4f4; padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+            .endpoint h3 { margin-top: 0; }
+            code { background: #eee; padding: 2px 5px; border-radius: 3px; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Excel Processing API</h1>
+            <p>Status: <strong style="color: green;">Healthy</strong></p>
+            
+            <h2>Available Endpoints:</h2>
+            
+            <div class="endpoint">
+                <h3>/get-sheet-names</h3>
+                <p>POST request to get sheet names from an Excel file</p>
+            </div>
+            
+            <div class="endpoint">
+                <h3>/process-excel</h3>
+                <p>POST request to process Excel files</p>
+            </div>
+            
+            <div class="endpoint">
+                <h3>/combine-armatures</h3>
+                <p>POST request to combine armature CSV files</p>
+            </div>
+            
+            <div class="endpoint">
+                <h3>/estim-batiment</h3>
+                <p>POST request to process building estimation files</p>
+            </div>
+            
+            <p>Deployed on <a href="https://bak-5tqz.onrender.com">Render</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    return html, 200, {'Content-Type': 'text/html'}
+
+@app.route('/redirect')
+def redirect_to_render():
+    """Redirect to the Render deployment"""
+    from flask import redirect
+    return redirect("https://bak-5tqz.onrender.com", code=302)
 
 @app.route('/get-sheet-names', methods=['POST'])
 def get_sheet_names_route():
