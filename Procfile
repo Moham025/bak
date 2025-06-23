@@ -1,1 +1,1 @@
-web: gunicorn bon_a_envoye:app 
+web: cd backend && python bon_a_envoye.py 
