@@ -336,6 +336,11 @@ def traiter_fichier_excel_core(bytes_fichier_source, noms_feuilles_a_traiter_str
         return None
 
 # --- Endpoints Flask ---
+@app.route('/')
+def health_check():
+    """Health check endpoint for Railway"""
+    return jsonify({"status": "healthy", "service": "Excel Processing API"}), 200
+
 @app.route('/get-sheet-names', methods=['POST'])
 def get_sheet_names_route():
     if 'excel_file' not in request.files:
