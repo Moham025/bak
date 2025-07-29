@@ -1,16 +1,4 @@
 {
-  "flutter": {
-    "platforms": {
-      "dart": {
-        "lib/firebase_options.dart": {
-          "projectId": "fairebaseteste",
-          "configurations": {
-            "web": "1:219125181965:web:2616954b11752685d2ef44"
-          }
-        }
-      }
-    }
-  },
   "hosting": {
     "public": "build/web",
     "ignore": [
@@ -25,4 +13,4 @@
       }
     ]
   }
-}
+} 
