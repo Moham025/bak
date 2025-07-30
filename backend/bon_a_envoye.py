@@ -578,9 +578,11 @@ def process_estim_batiment(excel_file_bytes):
         print(f"Erreur lors de l'ouverture du fichier d'estimation: {e}")
         return None, f"Erreur lors de l'ouverture du fichier: {str(e)}"
 
-    # Vérifie la présence des feuilles nécessaires
-    required_formula_sheets = ["qt", "calcul", "Peinture", "Revetement", "Toiture"]
-    required_value_sheets = ["open", "Electricite", "Plomberie"]
+    # --- CORRECTION APPLIQUÉE ICI ---
+    # "qt" a été déplacé vers `required_value_sheets` pour lire les valeurs calculées
+    # au lieu des formules, ce qui résout le problème des quantités nulles.
+    required_formula_sheets = ["calcul", "Peinture", "Revetement", "Toiture"]
+    required_value_sheets = ["qt", "open", "Electricite", "Plomberie"]
 
     sheets_formulas = {}
     sheets_values = {}
@@ -599,15 +601,16 @@ def process_estim_batiment(excel_file_bytes):
         else:
             sheets_values[sheet_name] = input_wb_values[sheet_name]
 
-    # Assign sheets to variables for clarity
-    qt_sheet = sheets_formulas["qt"]
-    calcul_sheet = sheets_formulas["calcul"]
-    open_sheet = sheets_values["open"]
-    electricite_sheet = sheets_values["Electricite"]
-    plomberie_sheet = sheets_values["Plomberie"]
-    peinture_sheet = sheets_formulas["Peinture"]
-    revetement_sheet = sheets_formulas["Revetement"]
-    toiture_sheet = sheets_formulas["Toiture"]
+    # --- CORRECTION APPLIQUÉE ICI ---
+    # qt_sheet est maintenant chargé depuis le classeur des valeurs (input_wb_values)
+    qt_sheet = sheets_values.get("qt")
+    calcul_sheet = sheets_formulas.get("calcul")
+    open_sheet = sheets_values.get("open")
+    electricite_sheet = sheets_values.get("Electricite")
+    plomberie_sheet = sheets_values.get("Plomberie")
+    peinture_sheet = sheets_formulas.get("Peinture")
+    revetement_sheet = sheets_formulas.get("Revetement")
+    toiture_sheet = sheets_formulas.get("Toiture")
 
     # Vérification des feuilles critiques
     if qt_sheet is None:
