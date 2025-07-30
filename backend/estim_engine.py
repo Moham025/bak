@@ -2,9 +2,9 @@
 import openpyxl
 import io
 
-# Import des modules de traitement
-from data_reader import get_qt_data, get_open_data, get_simple_block_data, get_formula_block_data
-from calculation_engine import parse_calcul_sheet_and_process_blocks, process_menuiserie_block, process_simple_block, process_formula_block, write_recap_block
+# Import des modules de traitement depuis le sous-dossier "EstimBatiment"
+from EstimBatiment.data_reader import get_qt_data, get_open_data, get_simple_block_data, get_formula_block_data
+from EstimBatiment.calculation_engine import parse_calcul_sheet_and_process_blocks, process_menuiserie_block, process_simple_block, process_formula_block, write_recap_block
 
 def process_estim_batiment(excel_file_bytes):
     """
