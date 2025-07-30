@@ -1,9 +1,9 @@
 # calculation_engine.py
 import re
-# Import de la fonction d'écriture Excel
-from excel_writer import create_excel_table_for_block
-# Import de la fonction de conversion nombre-lettre
-from number_to_letter_converter import conv_number_letter
+# Import de la fonction d'écriture Excel avec un import relatif (ajout du '.')
+from .excel_writer import create_excel_table_for_block
+# Import de la fonction de conversion nombre-lettre avec un import relatif (ajout du '.')
+from .number_to_letter_converter import conv_number_letter
 from openpyxl.styles import Font, Border, Side, Alignment, PatternFill
 
 def evaluate_formula(formula_str, qt_data, current_item_description="N/A"):
@@ -431,4 +431,3 @@ def write_recap_block(output_ws, start_row, recap_entries):
     current_row += 1
 
     return current_row # Return the next available row after the recap
-
