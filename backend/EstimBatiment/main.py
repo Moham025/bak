@@ -26,11 +26,11 @@ def main():
         return
 
     try:
-        print(f"Chargement du classeur d'entrée pour formules (calcul, qt, Peinture, Revetement, Toiture): {input_filepath}")
+        print(f"Chargement du classeur d'entrée pour formules (calcul, Peinture, Revetement, Toiture): {input_filepath}")
         # Charge le classeur une première fois pour accéder aux formules (data_only=False)
         input_wb_formulas = openpyxl.load_workbook(input_filepath, data_only=False)
         
-        print(f"Chargement du classeur d'entrée pour valeurs (open, Electricite, Plomberie): {input_filepath}")
+        print(f"Chargement du classeur d'entrée pour valeurs (qt, open, Electricite, Plomberie): {input_filepath}")
         # Charge le classeur une deuxième fois pour obtenir les valeurs calculées (data_only=True)
         input_wb_values = openpyxl.load_workbook(input_filepath, data_only=True)
 
@@ -39,8 +39,11 @@ def main():
         return
 
     # Vérifie la présence des feuilles nécessaires dans les classeurs appropriés
-    required_formula_sheets = ["qt", "calcul", "Peinture", "Revetement", "Toiture"]
-    required_value_sheets = ["open", "Electricite", "Plomberie"]
+    # --- CORRECTION APPLIQUÉE ICI ---
+    # "qt" a été déplacé vers `required_value_sheets` pour lire les valeurs calculées
+    # au lieu des formules.
+    required_formula_sheets = ["calcul", "Peinture", "Revetement", "Toiture"]
+    required_value_sheets = ["qt", "open", "Electricite", "Plomberie"]
 
     sheets_formulas = {}
     sheets_values = {}
@@ -60,7 +63,9 @@ def main():
             sheets_values[sheet_name] = input_wb_values[sheet_name]
 
     # Assign sheets to variables for clarity
-    qt_sheet = sheets_formulas["qt"]
+    # --- CORRECTION APPLIQUÉE ICI ---
+    # qt_sheet est maintenant chargé depuis le classeur des valeurs
+    qt_sheet = sheets_values["qt"]
     calcul_sheet = sheets_formulas["calcul"]
     open_sheet = sheets_values["open"]
     electricite_sheet = sheets_values["Electricite"]
@@ -193,7 +198,8 @@ def main():
         return
 
     base, ext = os.path.splitext(os.path.basename(input_filepath))
-    output_filename = f"{base}_estimation_globale_calculee.xlsx"
+    # Proposer un nom de fichier de sortie plus clair
+    output_filename = f"{base} resultat.xlsx"
     
     output_filepath = filedialog.asksaveasfilename(
         title="Enregistrer le fichier d'estimation calculée sous...",
