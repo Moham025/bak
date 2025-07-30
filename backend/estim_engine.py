@@ -25,12 +25,25 @@ def process_estim_batiment(excel_file_bytes):
         print(f"Erreur lors de l'ouverture du fichier d'estimation: {e}")
         return None, f"Erreur lors de l'ouverture du fichier: {str(e)}"
 
-    # La logique de lecture des feuilles est maintenant correcte et centralisée ici
     required_formula_sheets = ["calcul", "Peinture", "Revetement", "Toiture"]
     required_value_sheets = ["qt", "open", "Electricite", "Plomberie"]
 
-    sheets_formulas = {name: input_wb_formulas.get(name) for name in required_formula_sheets}
-    sheets_values = {name: input_wb_values.get(name) for name in required_value_sheets}
+    # --- CORRECTION APPLIQUÉE ICI ---
+    # On utilise la bonne méthode pour récupérer les feuilles du classeur
+    sheets_formulas = {}
+    for name in required_formula_sheets:
+        if name in input_wb_formulas.sheetnames:
+            sheets_formulas[name] = input_wb_formulas[name]
+        else:
+            sheets_formulas[name] = None
+
+    sheets_values = {}
+    for name in required_value_sheets:
+        if name in input_wb_values.sheetnames:
+            sheets_values[name] = input_wb_values[name]
+        else:
+            sheets_values[name] = None
+    # --- FIN DE LA CORRECTION ---
 
     qt_sheet = sheets_values.get("qt")
     calcul_sheet = sheets_formulas.get("calcul")
@@ -43,12 +56,12 @@ def process_estim_batiment(excel_file_bytes):
     # --- Lecture des données ---
     print("Lecture des données...")
     qt_data_dict = get_qt_data(qt_sheet)
-    open_data_list = get_open_data(sheets_values["open"]) if sheets_values.get("open") else []
-    electricite_data_list = get_simple_block_data(sheets_values["Electricite"]) if sheets_values.get("Electricite") else []
-    plomberie_data_list = get_simple_block_data(sheets_values["Plomberie"]) if sheets_values.get("Plomberie") else []
-    peinture_data_list = get_formula_block_data(sheets_formulas["Peinture"]) if sheets_formulas.get("Peinture") else []
-    revetement_data_list = get_formula_block_data(sheets_formulas["Revetement"]) if sheets_formulas.get("Revetement") else []
-    toiture_data_list = get_formula_block_data(sheets_formulas["Toiture"]) if sheets_formulas.get("Toiture") else []
+    open_data_list = get_open_data(sheets_values.get("open")) if sheets_values.get("open") else []
+    electricite_data_list = get_simple_block_data(sheets_values.get("Electricite")) if sheets_values.get("Electricite") else []
+    plomberie_data_list = get_simple_block_data(sheets_values.get("Plomberie")) if sheets_values.get("Plomberie") else []
+    peinture_data_list = get_formula_block_data(sheets_formulas.get("Peinture")) if sheets_formulas.get("Peinture") else []
+    revetement_data_list = get_formula_block_data(sheets_formulas.get("Revetement")) if sheets_formulas.get("Revetement") else []
+    toiture_data_list = get_formula_block_data(sheets_formulas.get("Toiture")) if sheets_formulas.get("Toiture") else []
 
     # --- Configuration et traitement du classeur de sortie ---
     output_wb = openpyxl.Workbook()
